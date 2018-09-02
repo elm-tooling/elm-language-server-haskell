@@ -14,6 +14,5 @@ a description of the protocol.
 * Code formatted using `hlint`
 
 ## Building
-`stack setup`
-`stack build`
-`stack exec elm-language-server-exe`
+* `stack setup`
+* `stack install`
