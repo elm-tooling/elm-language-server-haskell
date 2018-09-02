@@ -1,0 +1,13 @@
+# This file contains EXACT dependencies to produce a reproducible build
+
+# LTS 11.22 is the latest one working for elm/compiler
+# which means ghc-8.2.2
+resolver: lts-11.22
+
+extra-deps:
+- git: https://github.com/norpan/elm-compiler-library.git
+  commit: c1607fd1cd5a98f6fbc74c3407b57938bb97964d
+# Change these to use later versions (they are not part of the lts)
+- haskell-lsp-0.7.0.0
+- haskell-lsp-types-0.7.0.0
+- sorted-list-0.2.1.0
