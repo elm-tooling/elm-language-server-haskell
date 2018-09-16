@@ -20,6 +20,7 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/norpan/elm-language-server#README.md>
 
 dependencies:
+  - Glob
   - aeson
   - base >= 4.7 && < 5
   - bytestring
@@ -27,6 +28,7 @@ dependencies:
   - data-default
   - directory
   - elm
+  - elm-format
   - filepath
   - haskell-lsp
   - hslogger
@@ -38,6 +40,7 @@ dependencies:
   - text
   - time
   - transformers
+  - unix
   - unordered-containers
   - vector
   - yi-rope

@@ -22,6 +22,8 @@ import Data.Default
 import qualified Data.HashMap.Strict as H
 import qualified Data.Map as Map
 import System.FilePath ((</>))
+import qualified System.FilePath.Glob as Glob
+import System.Posix.Process
 #if __GLASGOW_HASKELL__ < 804
 import Data.Monoid
 #endif
@@ -77,12 +79,16 @@ run dispatcherProc =
           liftIO $ U.logs "main.run:dp after dispatcherProc"
           return Nothing
     flip E.finally finalProc $ do
-      Core.setupLogger (Just "/tmp/lsp-hello.log") [] L.DEBUG
+      pid <- getProcessID
+      Core.setupLogger
+        (Just ("/tmp/elm-language-server-" ++ show pid ++ ".log"))
+        []
+        L.DEBUG
       CTRL.run
         (return (Right ()), dp)
         (lspHandlers rin)
         lspOptions
-        (Just "/tmp/lsp-hello-session.log")
+        (Just ("/tmp/elm-language-session-" ++ show pid ++ ".log"))
   where
     handlers = [E.Handler ioExcept, E.Handler someExcept]
     finalProc = L.removeAllHandlers
@@ -146,7 +152,7 @@ reactor lf inp = do
           case Core.rootPath lf of
             Nothing -> U.logm "NO ROOTPATH"
             Just root -> do
-              answers <- compileFiles root []
+              answers <- compileFiles root Nothing
               return ()
       -- -------------------------------
       HandlerRequest (NotDidOpenTextDocument notification) -> do
@@ -322,8 +328,13 @@ compileFiles root files = do
     Elm.Project.Json.check project
     liftIO $ U.logs ("COMPILE3 " ++ root)
     summary <- Stuff.Verify.verify root project
-    liftIO $ U.logs ("COMPILE4 " ++ root)
-    args <- File.Args.fromPaths summary files
+    -- If no files are given, get files from the  project
+    actualFiles <-
+      case files of
+        Nothing -> liftIO $ getElmFiles project
+        Just f -> return f
+    liftIO $ U.logs ("COMPILE4 " ++ show actualFiles)
+    args <- File.Args.fromPaths summary actualFiles
     liftIO $ U.logs ("COMPILE5 " ++ root)
     graph <- File.Crawl.crawl summary args
     liftIO $ U.logs ("COMPILE6 " ++ root)
@@ -340,3 +351,13 @@ reportAnswers (Just map) = do
   sendDiagnostics
     (J.Uri $ T.pack $ Elm.Compiler.Module.nameToString (fst (head list)))
     (Just 0)
+
+-- Get all elm files given in an elm.json ([] for a package, all elm files for an application)
+getElmFiles :: Elm.Project.Json.Project -> IO [FilePath]
+getElmFiles summary =
+  case summary of
+    Elm.Project.Json.App app -> do
+      let dirs = Elm.Project.Json._app_source_dirs app
+      elmFiles <- mapM (Glob.globDir1 (Glob.compile "**/*.elm")) dirs
+      return (concat elmFiles)
+    Elm.Project.Json.Pkg package -> return []
