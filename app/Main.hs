@@ -28,6 +28,8 @@ import System.Posix.Process
 import Data.Monoid
 #endif
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
+import Data.Maybe
 import qualified Language.Haskell.LSP.Control as LSP.Control
 import qualified Language.Haskell.LSP.Core as LSP.Core
 import Language.Haskell.LSP.Diagnostics
@@ -41,6 +43,7 @@ import qualified System.Log.Logger as L
 import qualified Yi.Rope as Yi
 
 -- ELM COMPILER MODULES
+import qualified Elm.Compiler
 import qualified Elm.Compiler.Module
 import qualified Elm.Package
 import qualified Elm.Project.Json
@@ -50,6 +53,11 @@ import qualified File.Crawl
 import qualified File.Plan
 import qualified Reporting.Progress.Json
 import qualified Reporting.Task
+import qualified Reporting.Doc
+import qualified Reporting.Error
+import qualified Reporting.Render.Code
+import qualified Reporting.Report
+import qualified Reporting.Region
 import qualified Stuff.Verify
 
 -- ---------------------------------------------------------------------
@@ -82,14 +90,15 @@ run dispatcherProc =
     flip Exception.finally finalProc $ do
       pid <- getProcessID
       LSP.Core.setupLogger
-        (Just ("/tmp/elm-language-server-" ++ show pid ++ ".log"))
+        --(Just ("/tmp/elm-language-server-" ++ show pid ++ ".log")) TODO: Reintroduce pid/date logfiles + add program option for log file destination
+        (Just ("/tmp/elm-language-server.log"))
         []
         L.DEBUG
       LSP.Control.run
         (return (Right ()), dp)
         (lspHandlers rin)
         lspOptions
-        (Just ("/tmp/elm-language-session-" ++ show pid ++ ".log"))
+        (Just ("/tmp/elm-language-session.log"))
   where
     handlers = [Exception.Handler ioExcept, Exception.Handler someExcept]
     finalProc = L.removeAllHandlers
@@ -145,23 +154,15 @@ reactor lf inp = do
       HandlerRequest (RspFromClient rm) -> do
         liftIO $ LSP.logs $ "reactor:got RspFromClient:" ++ show rm
       -- -------------------------------
-      HandlerRequest (NotInitialized _notification) -> do
-        liftIO $ LSP.logm "****** reactor: processing Initialized Notification"
-        -- Read project file
-        lf <- ask
-        liftIO $
-          case LSP.Core.rootPath lf of
-            Nothing -> LSP.logm "NO ROOTPATH"
-            Just root -> do
-              answers <- compileFiles root Nothing
-              return ()
+      HandlerRequest (NotInitialized _notification) -> 
+        compileAndReportDiagnostics Nothing
       -- -------------------------------
-      HandlerRequest (NotDidOpenTextDocument notification) -> do
-        liftIO $ LSP.logm "****** reactor: processing NotDidOpenTextDocument"
-        let doc = notification ^. LSP.params . LSP.textDocument . LSP.uri
-            fileName = LSP.uriToFilePath doc
-        liftIO $ LSP.logs $ "********* fileName=" ++ show fileName
-        sendDiagnostics doc (Just 0)
+      -- HandlerRequest (NotDidOpenTextDocument notification) -> do
+      --   liftIO $ LSP.logm "****** reactor: processing NotDidOpenTextDocument"
+      --   let doc = notification ^. LSP.params . LSP.textDocument . LSP.uri
+      --       fileName = LSP.uriToFilePath doc
+      --   liftIO $ LSP.logs $ "********* fileName=" ++ show fileName
+      --   sendDiagnostics doc (Just 0)
       -- -------------------------------
       HandlerRequest (NotDidChangeTextDocument notification) -> do
         let doc :: LSP.Uri
@@ -180,11 +181,12 @@ reactor lf inp = do
           (show doc)
       -- -------------------------------
       HandlerRequest (NotDidSaveTextDocument notification) -> do
-        liftIO $ LSP.logm "****** reactor: processing NotDidSaveTextDocument"
-        let doc = notification ^. LSP.params . LSP.textDocument . LSP.uri
-            fileName = LSP.uriToFilePath doc
-        liftIO $ LSP.logs $ "********* fileName=" ++ show fileName
-        sendDiagnostics doc Nothing
+        let fileUri = notification ^. LSP.params . LSP.textDocument . LSP.uri
+        let filePath = LSP.uriToFilePath fileUri
+        LSP.Core.flushDiagnosticsBySourceFunc <$> ask
+        -- we can't use (fmap return filePath) in here, because we need to update dependents also
+        -- seems like we need to look backwards in the dependency graph ourself
+        compileAndReportDiagnostics Nothing
       -- -------------------------------
       HandlerRequest (ReqRename req) -> do
         liftIO $ LSP.logs $ "reactor:got RenameRequest:" ++ show req
@@ -271,40 +273,56 @@ reactor lf inp = do
 toWorkspaceEdit :: t -> Maybe LSP.ApplyWorkspaceEditParams
 toWorkspaceEdit _ = Nothing
 
+compileAndReportDiagnostics :: Maybe [FilePath] -> R () ()
+compileAndReportDiagnostics maybeOpenedFile = do
+  lf <- ask
+  case LSP.Core.rootPath lf of
+    Nothing -> liftIO $ LSP.logm "NO ROOTPATH"
+    Just root -> do
+      answers <- liftIO $ compileFiles root maybeOpenedFile
+      reportAnswers answers
+
 -- ---------------------------------------------------------------------
 -- | Analyze the file and send any diagnostics to the client in a
 -- "textDocument/publishDiagnostics" notification
-sendDiagnostics :: LSP.Uri -> Maybe Int -> R () ()
-sendDiagnostics fileUri version = do
+sendDiagnostics :: FilePath -> Reporting.Report.Report -> R () ()
+sendDiagnostics filePath (Reporting.Report.Report title region suggestions messageDoc) = do
+  let translatePosition (Reporting.Region.Position line column) = LSP.Position (line - 1) (column - 1) -- elm uses 1-based indices (for being human friendly)
+  let (Reporting.Region.Region start end) = region
+  let fileUri = LSP.filePathToUri filePath
   let diags =
         [ LSP.Diagnostic
-            (LSP.Range (LSP.Position 0 1) (LSP.Position 0 5))
-            (Just LSP.DsWarning) -- severity
+            (LSP.Range (translatePosition start) (translatePosition end))
+            (Just LSP.DsError) -- severity
             Nothing -- code
-            (Just "lsp-hello") -- source
-            "Example diagnostic message"
+            (Just "elm-language-server") -- source
+            (T.pack (Reporting.Doc.toString messageDoc))
             (Just (LSP.List []))
         ]
   -- reactorSend $ LSP.NotificationMessage "2.0" "textDocument/publishDiagnostics" (Just r)
-  publishDiagnostics 100 fileUri version (partitionBySource diags)
+  publishDiagnostics 100 fileUri (Just 0) (partitionBySource diags)
 
 -- ---------------------------------------------------------------------
 syncOptions :: LSP.TextDocumentSyncOptions
 syncOptions =
   LSP.TextDocumentSyncOptions
     { LSP._openClose = Just False
-    , LSP._change = Just LSP.TdSyncFull
+    , LSP._change = Just LSP.TdSyncNone
     , LSP._willSave = Just False
     , LSP._willSaveWaitUntil = Just False
     , LSP._save = Just $ LSP.SaveOptions $ Just False
     }
 
 lspOptions :: LSP.Core.Options
-lspOptions = def {LSP.Core.textDocumentSync = Just syncOptions}
+lspOptions = def
+  { LSP.Core.textDocumentSync = Just syncOptions
+  }
 
 lspHandlers :: TChan ReactorInput -> LSP.Core.Handlers
-lspHandlers rin =
-  def {LSP.Core.initializedHandler = Just $ passHandler rin NotInitialized}
+lspHandlers rin = def
+  { LSP.Core.initializedHandler = Just $ passHandler rin NotInitialized
+  , LSP.Core.didSaveTextDocumentNotificationHandler = Just $ passHandler rin NotDidSaveTextDocument
+  }
 
 -- ---------------------------------------------------------------------
 passHandler :: TChan ReactorInput -> (a -> FromClientMessage) -> LSP.Core.Handler a
@@ -318,6 +336,7 @@ responseHandlerCb _rin resp = do
 
 -- Use Elm Compiler to compiler files
 -- Arguments are root (where elm.json lives) and filenames (or [])
+compileFiles :: MonadIO m => String -> Maybe [FilePath] -> m (Maybe (Map.Map Elm.Compiler.Module.Raw File.Compile.Answer))
 compileFiles root files = do
   liftIO $ Reporting.Task.try Reporting.Progress.Json.reporter $ do
     liftIO $ LSP.logs ("COMPILE1 " ++ root)
@@ -344,14 +363,25 @@ compileFiles root files = do
     File.Compile.compile project Nothing ifaces dirty
 
 -- ---------------------------------------------------------------------
-reportAnswers ::
-     Maybe (Map.Map Elm.Compiler.Module.Raw File.Compile.Answer) -> R () ()
-reportAnswers Nothing = return ()
-reportAnswers (Just map) = do
-  let list = Map.toList map
-  sendDiagnostics
-    (LSP.Uri $ T.pack $ Elm.Compiler.Module.nameToString (fst (head list)))
-    (Just 0)
+filterBadAnswers :: [File.Compile.Answer] -> [(FilePath, [Elm.Compiler.Error])]
+filterBadAnswers = mapMaybe $ \case
+  File.Compile.Bad path _ _ errors -> Just (path, errors)
+  _ -> Nothing
+
+reportAnswers :: Maybe (Map.Map Elm.Compiler.Module.Raw File.Compile.Answer) -> R () ()
+reportAnswers answers = do
+  let answerList = map snd $ Map.toList (fromMaybe Map.empty answers)
+  let badAnswers = filterBadAnswers answerList
+  maybeRootPath <- LSP.Core.rootPath <$> ask
+  case maybeRootPath of
+    Nothing -> liftIO $ LSP.logm "NO ROOT PATH"
+    Just rootPath -> do
+      liftIO $ LSP.logs ("# of modules with errors: " ++ show (length badAnswers))
+      forM_ badAnswers $ \(path, errors) -> do
+        fileContent <- liftIO $ T.readFile path -- TODO: this is extremely inefficient
+        let reports = concatMap (Reporting.Error.toReports (Reporting.Render.Code.toSource fileContent)) errors
+        forM_ reports $ \report ->
+          sendDiagnostics (rootPath </> path) report
 
 -- Get all elm files given in an elm.json ([] for a package, all elm files for an application)
 getElmFiles :: Elm.Project.Json.Project -> IO [FilePath]

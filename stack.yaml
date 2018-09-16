@@ -11,7 +11,8 @@ extra-deps:
 - haskell-lsp-0.8.0.0
 - haskell-lsp-types-0.8.0.0
 - sorted-list-0.2.1.0
-- git: https://github.com/avh4/elm-format.git
-  commit: 0.8.0
+# Removed, since it contains a conflicting module name: Reporting.Region :(
+#- git: https://github.com/avh4/elm-format.git
+#  commit: 0.8.0
 - indents-0.3.3
 - concatenative-1.0.1
