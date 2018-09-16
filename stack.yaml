@@ -6,10 +6,10 @@ resolver: lts-11.22
 
 extra-deps:
 - git: https://github.com/norpan/elm-compiler-library.git
-  commit: c1607fd1cd5a98f6fbc74c3407b57938bb97964d
+  commit: 8dee44235d4c8c56b19a8f67cecb840f3bc9373c
 # Change these to use later versions (they are not part of the lts)
-- haskell-lsp-0.7.0.0
-- haskell-lsp-types-0.7.0.0
+- haskell-lsp-0.8.0.0
+- haskell-lsp-types-0.8.0.0
 - sorted-list-0.2.1.0
 - git: https://github.com/avh4/elm-format.git
   commit: 0.8.0
