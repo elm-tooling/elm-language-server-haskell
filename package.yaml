@@ -28,8 +28,7 @@ dependencies:
   - data-default
   - directory
   - elm
-# Removed, since its module Reporting.Region conflicts with elm compiler :(
-#  - elm-format
+  - elm-format
   - filepath
   - haskell-lsp
   - hslogger

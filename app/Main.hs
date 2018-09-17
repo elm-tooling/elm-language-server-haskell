@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PackageImports #-}
 
 module Main
     ( main
@@ -52,7 +53,7 @@ import qualified Reporting.Doc
 import qualified Reporting.Error
 import qualified Reporting.Render.Code
 import qualified Reporting.Report
-import qualified Reporting.Region
+import qualified "elm" Reporting.Region -- would conflict with elm-format's Reporting.Region
 import qualified Stuff.Verify
 
 
