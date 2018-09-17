@@ -23,9 +23,11 @@ import qualified Data.Map as Map
 import System.FilePath ((</>))
 import qualified System.FilePath.Glob as Glob
 import System.Posix.Process
+import System.Posix.Types
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Data.Maybe
+import Data.Semigroup
 import qualified Language.Haskell.LSP.Control as LSP.Control
 import qualified Language.Haskell.LSP.Core as LSP.Core
 import Language.Haskell.LSP.Diagnostics
@@ -37,6 +39,7 @@ import Language.Haskell.LSP.VFS
 import System.Exit
 import qualified System.Log.Logger as L
 import qualified Yi.Rope as Yi
+import Options.Applicative
 
 -- ELM COMPILER MODULES
 import qualified Elm.Compiler
@@ -58,24 +61,55 @@ import qualified Stuff.Verify
 
 import qualified Language.Elm.LSP.Diagnostics as Diagnostics
 
+data CommandLineOptions
+    = CommandLineOptions
+    { serverLogFile :: FilePath
+    , sessionLogFile :: FilePath
+    }
+
+commandLineOptionsParser :: ProcessID -> Parser CommandLineOptions
+commandLineOptionsParser pid = CommandLineOptions
+    <$> strOption
+        ( long "server-log-file"
+        <> metavar "FILENAME"
+        <> help "Log file used for general server logging (default: /tmp/elm-language-server-<pid>.log)"
+        <> value ("/tmp/elm-language-server-" ++ show pid ++ ".log") -- TODO: Maybe use dates as a default in the future?
+        )
+    <*> strOption
+        ( long "session-log-file"
+        <> metavar "FILENAME"
+        <> help "Log file used for general server logging (default: /tmp/elm-language-session-<pid>.log)"
+        <> value ("/tmp/elm-language-session-" ++ show pid ++ ".log")
+        )
+
+commandLineOptions :: ProcessID -> ParserInfo CommandLineOptions
+commandLineOptions pid = info (commandLineOptionsParser pid <**> helper)
+    ( fullDesc
+    <> header "elm-language-server"
+    <> progDesc "A Language Server Protocol Implementation for the Elm Language (see https://elm-lang.org)"
+    )
+
 main :: IO ()
 main = do
-    run (return ()) >>= \case
+    opts <- execParser =<< commandLineOptions <$> getProcessID
+    run opts (return ()) >>= \case
         0 -> exitSuccess
         c -> exitWith . ExitFailure $ c
 
-run :: IO () -> IO Int
-run dispatcherProc = flip Exception.catches handlers $ do
+run :: CommandLineOptions -> IO () -> IO Int
+run opts dispatcherProc = flip Exception.catches handlers $ do
     rin <- atomically newTChan :: IO (TChan ReactorInput)
     let dp lf = do
             _rpid <- forkIO $ reactor lf rin
             dispatcherProc
             return Nothing
     flip Exception.finally finalProc $ do
-        pid <- getProcessID
-        --(Just ("/tmp/elm-language-server-" ++ show pid ++ ".log")) TODO: Reintroduce pid/date logfiles + add program option for log file destination
-        LSP.Core.setupLogger (Just ("/tmp/elm-language-server.log")) [] L.DEBUG
-        LSP.Control.run (return (Right ()), dp) (lspHandlers rin) lspOptions (Just ("/tmp/elm-language-session.log"))
+        LSP.Core.setupLogger (Just (serverLogFile opts)) [] L.DEBUG
+        LSP.Control.run
+            (return (Right ()), dp)
+            (lspHandlers rin)
+            lspOptions
+            (Just (sessionLogFile opts))
   where
     handlers  = [Exception.Handler ioExcept, Exception.Handler someExcept]
     finalProc = L.removeAllHandlers
