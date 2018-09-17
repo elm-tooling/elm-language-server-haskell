@@ -66,11 +66,8 @@ run :: IO () -> IO Int
 run dispatcherProc = flip Exception.catches handlers $ do
     rin <- atomically newTChan :: IO (TChan ReactorInput)
     let dp lf = do
-            liftIO $ LSP.logs "main.run:dp entered"
             _rpid <- forkIO $ reactor lf rin
-            liftIO $ LSP.logs "main.run:dp tchan"
             dispatcherProc
-            liftIO $ LSP.logs "main.run:dp after dispatcherProc"
             return Nothing
     flip Exception.finally finalProc $ do
         pid <- getProcessID
@@ -96,11 +93,6 @@ publishDiagnostics :: Int -> LSP.Uri -> LSP.TextDocumentVersion -> DiagnosticsBy
 publishDiagnostics maxToPublish uri v diags = do
     lf <- ask
     liftIO $ (LSP.Core.publishDiagnosticsFunc lf) maxToPublish uri v diags
-
-nextLspReqId :: R () LSP.LspId
-nextLspReqId = do
-    f <- asks LSP.Core.getNextReqId
-    liftIO f
 
 -- | The single point that all events flow through, allowing management of state
 -- to stitch replies and requests together from the two asynchronous sides: lsp
@@ -177,8 +169,7 @@ passHandler rin c notification = do
 
 -- Use Elm Compiler to compiler files
 -- Arguments are root (where elm.json lives) and filenames (or [])
-compileFiles
-    :: MonadIO m => String -> Maybe [FilePath] -> m (Maybe (Map.Map Elm.Compiler.Module.Raw File.Compile.Answer))
+compileFiles :: MonadIO m => String -> Maybe [FilePath] -> m (Maybe (Map.Map Elm.Compiler.Module.Raw File.Compile.Answer))
 compileFiles root files = do
     liftIO $ Reporting.Task.try Reporting.Progress.Json.reporter $ do
         project <- Elm.Project.Json.read (root </> "elm.json")
