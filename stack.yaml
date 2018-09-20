@@ -4,9 +4,12 @@
 # which means ghc-8.2.2
 resolver: lts-11.22
 
+packages:
+- '.'
+
 extra-deps:
-- git: https://github.com/norpan/elm-compiler-library.git
-  commit: 8dee44235d4c8c56b19a8f67cecb840f3bc9373c
+- git: https://github.com/matheus23/elm-compiler-library.git
+  commit: e19ae1d4e7f14a999ad2aa0573e32d43406e6856
 # Change these to use later versions (they are not part of the lts)
 - haskell-lsp-0.8.0.0
 - haskell-lsp-types-0.8.0.0

@@ -129,23 +129,22 @@ type R c a = ReaderT (LSP.Core.LspFuncs c) IO a
 -- to stitch replies and requests together from the two asynchronous sides: lsp
 -- server and backend compiler
 reactor :: LSP.Core.LspFuncs () -> TChan ReactorInput -> IO ()
-reactor lf inp = do
+reactor lf inp =
     flip runReaderT lf $ forever $ do
         inval <- liftIO $ atomically $ readTChan inp
         case inval of
-            HandlerRequest (RspFromClient rm) -> do
+            HandlerRequest (RspFromClient rm) ->
                 liftIO $ LSP.logs $ "reactor:got RspFromClient:" ++ show rm
 
             HandlerRequest (NotInitialized _notification) ->
-                Diagnostics.compileAndReportDiagnostics Nothing
+                Diagnostics.typeCheckAndReportDiagnostics
 
             HandlerRequest (NotDidSaveTextDocument notification ) -> do
                 let fileUri  = notification ^. LSP.params . LSP.textDocument . LSP.uri
                 let filePath = LSP.uriToFilePath fileUri
-                LSP.Core.flushDiagnosticsBySourceFunc <$> ask
-                -- we can't use (fmap return filePath) in here, because we need to update dependents also
-                -- seems like we need to look backwards in the dependency graph ourself
-                Diagnostics.compileAndReportDiagnostics Nothing
+                lf <- ask
+                liftIO $ LSP.Core.flushDiagnosticsBySourceFunc lf 200 (Just "elm-language-server")
+                Diagnostics.typeCheckAndReportDiagnostics
 
 syncOptions :: LSP.TextDocumentSyncOptions
 syncOptions = LSP.TextDocumentSyncOptions
@@ -167,5 +166,5 @@ lspHandlers rin = def
     }
 
 passHandler :: TChan ReactorInput -> (a -> FromClientMessage) -> LSP.Core.Handler a
-passHandler rin c notification = do
+passHandler rin c notification =
     atomically $ writeTChan rin (HandlerRequest (c notification))
