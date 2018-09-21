@@ -31,6 +31,7 @@ dependencies:
   - elm-format
   - filepath
   - haskell-lsp
+  - haskell-lsp-types
   - hslogger
   - lens >= 4.15.2
   - mtl
