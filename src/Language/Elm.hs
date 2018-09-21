@@ -1,12 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PackageImports #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TupleSections #-}
 module Language.Elm where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
+import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan, getChanContents)
 import Control.Monad.IO.Class
 import Control.Monad
 import System.FilePath ((</>))
@@ -15,6 +13,8 @@ import qualified Data.Map as Map
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
+import qualified Data.Text.Encoding as T
+import Data.Maybe
 
 -- ELM COMPILER MODULES
 import qualified Compile
@@ -42,6 +42,8 @@ import qualified Reporting.Progress
 import qualified Reporting.Task
 import qualified Reporting.Warning
 import qualified Reporting.Result
+import qualified Reporting.Exit.Crawl
+import qualified Reporting.Exit
 import qualified Reporting.Render.Type.Localizer
 import qualified "elm" Reporting.Region -- would conflict with elm-format's Reporting.Region
 import qualified Stuff.Verify
@@ -61,8 +63,7 @@ data TypeCheckSuccess = TypeCheckSuccess
 
 data TypeCheckFailure = TypeCheckFailure
     { sourcePath :: FilePath
-    , rawSource :: BS.ByteString
-    , errors :: [Elm.Compiler.Error]
+    , errors :: [Reporting.Report.Report]
     }
 
 type CheckingAnswer = Either TypeCheckFailure TypeCheckSuccess
@@ -70,10 +71,9 @@ type CheckingAnswers = Map.Map Elm.Compiler.Module.Raw CheckingAnswer
 
 -- Use Elm Compiler to typecheck files
 -- Arguments are root (where elm.json lives) and filenames (or [])
-typeCheckFiles :: MonadIO m => String -> m (Maybe CheckingAnswers)
-typeCheckFiles root = do
-    terminalReporter <- liftIO Reporting.Progress.Terminal.create
-    liftIO $ Reporting.Task.try terminalReporter $ do
+typeCheckFiles :: MonadIO m => String -> m (Either Reporting.Exit.Exit CheckingAnswers)
+typeCheckFiles root =
+    liftIO $ Reporting.Task.tryWithError Reporting.Progress.silentReporter $ do
         project <- Elm.Project.Json.read (root </> "elm.json")
         Elm.Project.Json.check project
         summary <- Stuff.Verify.verify root project
@@ -97,13 +97,20 @@ computeInterfaceOrErrors :: File.Compile.Answer -> CheckingAnswer
 computeInterfaceOrErrors answer =
     case answer of
         File.Compile.Blocked ->
-            Left (TypeCheckFailure "" BS.empty [])
+            Left (TypeCheckFailure "" [])
 
         File.Compile.Bad path timeStamp source errors ->
-            Left (TypeCheckFailure path source errors)
+            Left (TypeCheckFailure path (compilerErrorsToReports source errors))
 
         File.Compile.Good (Elm.Compiler.Artifacts interface output documentation) ->
             Right (TypeCheckSuccess interface)
+
+compilerErrorsToReports :: BS.ByteString -> [Elm.Compiler.Error] -> [Reporting.Report.Report]
+compilerErrorsToReports sourceRaw errors =
+    let
+        source = Reporting.Render.Code.toSource (T.decodeUtf8 sourceRaw)
+    in
+        concatMap (Reporting.Error.toReports source) errors
 
 compileModule
     :: Elm.Project.Json.Project
@@ -160,9 +167,12 @@ customCompile pkg importDict interfaces source =
         () <-
             Compile.exhaustivenessCheck canonical
 
+        -- we don't actually run any code generation
+
         Reporting.Result.ok $
             Compile.Artifacts
                 { Compile._elmi = Elm.Interface.fromModule annotations canonical
+                -- we have to fake this, so compileModule can store artifacts in File.Compile.Good
                 , Compile._elmo = AST.Optimized.Graph Map.empty Map.empty Map.empty
                 , Compile._docs = Nothing
                 }

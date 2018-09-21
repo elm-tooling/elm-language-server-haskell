@@ -23,6 +23,7 @@ import qualified Language.Haskell.LSP.Core as LSP.Core
 import Language.Haskell.LSP.Diagnostics
 import Language.Haskell.LSP.Messages
 import qualified Language.Haskell.LSP.Types as LSP
+import qualified Language.Haskell.LSP.Types.MessageFuncs as LSP
 import qualified Language.Haskell.LSP.Types.Lens as LSP
 import qualified Language.Haskell.LSP.Utility as LSP
 import Language.Haskell.LSP.VFS
@@ -50,6 +51,7 @@ import qualified Reporting.Warning
 import qualified Reporting.Result
 import qualified Reporting.Render.Type.Localizer
 import qualified Reporting.Doc
+import qualified Reporting.Exit
 import qualified "elm" Reporting.Region -- would conflict with elm-format's Reporting.Region
 import qualified Stuff.Verify
 
@@ -63,6 +65,11 @@ publishDiagnostics maxToPublish uri v diags = do
     lf <- ask
     liftIO $ (LSP.Core.publishDiagnosticsFunc lf) maxToPublish uri v diags
 
+showMessageNotification :: LSP.MessageType -> T.Text -> R () ()
+showMessageNotification messageType text = do
+    lf <- ask
+    liftIO $ (LSP.Core.sendFunc lf) (NotShowMessage (LSP.fmServerShowMessageNotification messageType text))
+
 typeCheckAndReportDiagnostics :: R () ()
 typeCheckAndReportDiagnostics = do
     lf <- ask
@@ -71,13 +78,13 @@ typeCheckAndReportDiagnostics = do
             liftIO $ LSP.logm "NO ROOTPATH"
 
         Just root -> do
-            checkingAnswers <- liftIO $ Elm.typeCheckFiles root
-            case checkingAnswers of
-                Just a -> 
-                    reportAnswers root a
-                
-                Nothing -> 
-                    return ()
+            result <- liftIO $ Elm.typeCheckFiles root
+            case result of
+                Right answers -> 
+                    reportAnswers root answers
+
+                Left exit ->
+                    showMessageNotification LSP.MtError (T.pack (Reporting.Exit.toString exit))
 
 sendReportAsDiagnostics :: FilePath -> Reporting.Report.Report -> R () ()
 sendReportAsDiagnostics filePath report = do
@@ -106,11 +113,10 @@ reportAnswers rootPath checkingAnswers = do
   where
     reportModule moduleName result =
         case result of
-            Left (Elm.TypeCheckFailure path sourceRaw errors) ->
+            Left (Elm.TypeCheckFailure path errors) ->
                 let
-                    source = Reporting.Render.Code.toSource $ T.decodeUtf8 sourceRaw
                     fileUri = LSP.filePathToUri (rootPath </> path)
-                    diagnostics = map reportToDiagnostic $ concatMap (Reporting.Error.toReports source) errors
+                    diagnostics = map reportToDiagnostic errors
                 in
                     publishDiagnostics 200 fileUri Nothing (partitionBySource diagnostics)
 
