@@ -21,3 +21,6 @@ The editor should start one language server for each Elm project (there may be m
 ## Building
 * `stack setup`
 * `stack install`
+
+## Contributing
+* Get information about contributing on the [\#elm-language-server channel](https://elmlang.slack.com/messages/elm-language-server) in the elm slack.
