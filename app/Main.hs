@@ -22,7 +22,6 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map
 import System.FilePath ((</>))
 import qualified System.FilePath.Glob as Glob
-import System.Posix.Process
 import System.Posix.Types
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -40,6 +39,9 @@ import System.Exit
 import qualified System.Log.Logger as L
 import qualified Yi.Rope as Yi
 import Options.Applicative
+import qualified Data.Time.LocalTime as Time
+import qualified Data.Time.Format as Time
+
 
 -- ELM COMPILER MODULES
 import qualified Elm.Compiler
@@ -67,23 +69,25 @@ data CommandLineOptions
     , sessionLogFile :: FilePath
     }
 
-commandLineOptionsParser :: ProcessID -> Parser CommandLineOptions
-commandLineOptionsParser pid = CommandLineOptions
+commandLineOptionsParser :: String -> Parser CommandLineOptions
+commandLineOptionsParser logSuffix = CommandLineOptions
     <$> strOption
         ( long "server-log-file"
         <> metavar "FILENAME"
-        <> help "Log file used for general server logging (default: /tmp/elm-language-server-<pid>.log)"
-        <> value ("/tmp/elm-language-server-" ++ show pid ++ ".log") -- TODO: Maybe use dates as a default in the future?
+        <> help "Log file used for general server logging"
+        <> value ("/tmp/elm-language-server-" ++ logSuffix ++ ".log")
+        <> showDefault
         )
     <*> strOption
         ( long "session-log-file"
         <> metavar "FILENAME"
-        <> help "Log file used for general server logging (default: /tmp/elm-language-session-<pid>.log)"
-        <> value ("/tmp/elm-language-session-" ++ show pid ++ ".log")
+        <> help "Log file used for general server logging"
+        <> value ("/tmp/elm-language-session-" ++ logSuffix ++ ".log")
+        <> showDefault
         )
 
-commandLineOptions :: ProcessID -> ParserInfo CommandLineOptions
-commandLineOptions pid = info (commandLineOptionsParser pid <**> helper)
+commandLineOptions :: String -> ParserInfo CommandLineOptions
+commandLineOptions logSuffix = info (commandLineOptionsParser logSuffix <**> helper)
     ( fullDesc
     <> header "elm-language-server"
     <> progDesc "A Language Server Protocol Implementation for the Elm Language (see https://elm-lang.org)"
@@ -91,7 +95,10 @@ commandLineOptions pid = info (commandLineOptionsParser pid <**> helper)
 
 main :: IO ()
 main = do
-    opts <- execParser =<< commandLineOptions <$> getProcessID
+    zonedTime <- Time.getZonedTime
+    let isoFormat = Time.iso8601DateFormat (Just "%H:%M:%S")
+
+    opts <- execParser (commandLineOptions (Time.formatTime Time.defaultTimeLocale isoFormat zonedTime))
     run opts (return ()) >>= \case
         0 -> exitSuccess
         c -> exitWith . ExitFailure $ c
