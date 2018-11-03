@@ -41,7 +41,6 @@ dependencies:
   - text
   - time
   - transformers
-  - unix
   - unordered-containers
   - vector
   - yi-rope
