@@ -6,6 +6,9 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Pull Git Submodules
+          command: git submodule sync --recursive && git submodule update --recursive --init
+      - run:
           name: Setup
           command: stack setup
       - run:
