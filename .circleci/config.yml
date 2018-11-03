@@ -8,9 +8,24 @@ jobs:
       - run:
           name: Pull Git Submodules
           command: git submodule sync --recursive && git submodule update --recursive --init
-      - run:
-          name: Setup
-          command: stack setup
+      
+      - restore_cache:
+          keys:
+            - stack-work-v1-{{ checksum "package.yml" }}
+            - stack-work-v1
+            - stack-work-elm-library-v1-{{ checksum "elm-compiler-library/elm.cabal" }}
+            - stack-work-elm-library-v1
+
       - run:
           name: Install
-          command: stack install
+          # --system-ghc: the lts-11.22 image has ghc 8.2.2 pre-installed
+          command: stack install --system-ghc
+
+      - save_cache:
+          key: stack-work-v1-{{ checksum "package.yml" }}
+          paths:
+            - .stack-work/
+      - save_cache:
+          key: stack-work-elm-library-v1-{{ checksum "elm-compiler-library/elm.cabal" }}
+          paths:
+            - elm-compiler-library/.stack-work/
