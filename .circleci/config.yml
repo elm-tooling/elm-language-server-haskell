@@ -11,7 +11,7 @@ jobs:
       
       - restore_cache:
           keys:
-            - stack-work-v1-{{ checksum "package.yml" }}
+            - stack-work-v1-{{ checksum "package.yaml" }}
             - stack-work-v1
             - stack-work-elm-library-v1-{{ checksum "elm-compiler-library/elm.cabal" }}
             - stack-work-elm-library-v1
@@ -22,7 +22,7 @@ jobs:
           command: stack install --system-ghc
 
       - save_cache:
-          key: stack-work-v1-{{ checksum "package.yml" }}
+          key: stack-work-v1-{{ checksum "package.yaml" }}
           paths:
             - .stack-work/
       - save_cache:
