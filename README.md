@@ -1,3 +1,5 @@
+# It's very early in development, please keep that in mind
+
 # elm-language-server
 
 First attempt to write a language server for Elm.
@@ -19,6 +21,7 @@ The editor should start one language server for each Elm project (there may be m
 * Code formatted using `hlint`
 
 ## Building
+Make sure you cloned the repo and the submodules.
 * `stack setup`
 * `stack install`
 
