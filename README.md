@@ -1,3 +1,5 @@
+[![CircleCI](https://circleci.com/gh/elm-tooling/elm-language-server/tree/master.svg?style=svg)](https://circleci.com/gh/elm-tooling/elm-language-server/tree/master)
+
 # It's very early in development, please keep that in mind
 
 # elm-language-server
@@ -20,14 +22,14 @@ The editor should start one language server for each Elm project (there may be m
 ## Libraries used
 * haskell-lsp
 * json-rpc-server
-* elm-compiler
+* elm-compiler-library (which is a version of elm-compiler)
 
 ## Notes
 * Code formatted using `hlint`
 
 ## Building
 Clone the repository and its subrepositories:
-* `git clone https://github.com/matheus23/elm-language-server`
+* `git clone https://github.com/elm-tooling/elm-language-server`
 * `git submodules update --init --recursive`
 Install ghc and dependencies. You need to have [stack](https://www.haskellstack.org) installed
 * `stack setup`

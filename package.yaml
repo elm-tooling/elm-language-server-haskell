@@ -1,6 +1,6 @@
 name:                elm-language-server
 version:             0.1.0.0
-github:              "norpan/elm-language-server"
+github:              "elm-tooling/elm-language-server"
 license:             BSD3
 author:              "Martin Norbäck Olivers"
 maintainer:          "martin@norpan.org"
@@ -17,7 +17,7 @@ extra-source-files:
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/norpan/elm-language-server#README.md>
+description:         Please see the README on GitHub at <https://github.com/elm-tooling/elm-language-server#README.md>
 
 dependencies:
   - Glob
