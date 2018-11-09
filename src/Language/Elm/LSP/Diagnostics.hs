@@ -102,7 +102,7 @@ reportToDiagnostic (Reporting.Report.Report title region suggestions messageDoc)
             (LSP.Range (translatePosition start) (translatePosition end))
             (Just LSP.DsError) -- severity
             Nothing -- code
-            (Just "elm-language-server") -- source
+            (Just "ElmLS") -- source
             (T.pack (Reporting.Doc.toString messageDoc)) -- TODO: The messageDoc also shows the source code, which is not necessary for diagnostics
             (Just (LSP.List []))
 
