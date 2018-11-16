@@ -153,6 +153,30 @@ reactor lf inp =
                 liftIO $ LSP.Core.flushDiagnosticsBySourceFunc lf 200 (Just "elm-language-server")
                 Diagnostics.typeCheckAndReportDiagnostics
 
+            HandlerRequest (ReqCodeAction req) -> do
+		let params = req ^. LSP.params
+		let fileUri = params ^. LSP.textDocument . LSP.uri
+                let filePath = LSP.uriToFilePath fileUri
+		let range = params ^. LSP.range
+
+		liftIO . LSP.logs $ show range
+		let changes = Just $ HashMap.singleton fileUri $ LSP.List [ LSP.TextEdit range ""]
+		    action = LSP.CACodeAction $ LSP.CodeAction "Delete everything"
+                                                               (Just LSP.CodeActionQuickFix)
+							       Nothing
+							       (Just $ LSP.WorkspaceEdit changes Nothing)
+							       Nothing
+		    body = LSP.List [action]
+		    rsp = LSP.Core.makeResponseMessage req body
+		liftIO . LSP.logs $ show body
+		liftIO . LSP.logs $ show rsp
+	        reactorSend $ RspCodeAction rsp
+
+reactorSend :: FromServerMessage -> R () ()
+reactorSend msg = do
+  lf <- ask
+  liftIO $ LSP.Core.sendFunc lf msg
+
 syncOptions :: LSP.TextDocumentSyncOptions
 syncOptions = LSP.TextDocumentSyncOptions
     { LSP._openClose = Just False
@@ -170,6 +194,7 @@ lspHandlers :: TChan ReactorInput -> LSP.Core.Handlers
 lspHandlers rin = def 
     { LSP.Core.initializedHandler = Just $ passHandler rin NotInitialized
     , LSP.Core.didSaveTextDocumentNotificationHandler = Just $ passHandler rin NotDidSaveTextDocument
+    , LSP.Core.codeActionHandler = Just $ passHandler rin ReqCodeAction
     }
 
 passHandler :: TChan ReactorInput -> (a -> FromClientMessage) -> LSP.Core.Handler a
