@@ -150,7 +150,7 @@ reactor lf inp =
                 let fileUri  = notification ^. LSP.params . LSP.textDocument . LSP.uri
                 let filePath = LSP.uriToFilePath fileUri
                 lf <- ask
-                liftIO $ LSP.Core.flushDiagnosticsBySourceFunc lf 200 (Just "elm-language-server")
+                liftIO $ LSP.Core.flushDiagnosticsBySourceFunc lf 200 (Just "ElmLS")
                 Diagnostics.typeCheckAndReportDiagnostics
 
 syncOptions :: LSP.TextDocumentSyncOptions
