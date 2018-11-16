@@ -30,7 +30,7 @@ The editor should start one language server for each Elm project (there may be m
 ## Building
 Clone the repository and its subrepositories:
 * `git clone https://github.com/elm-tooling/elm-language-server`
-* `git submodules update --init --recursive`
+* `git submodule update --init --recursive`
 Install ghc and dependencies. You need to have [stack](https://www.haskellstack.org) installed
 * `stack setup`
 * `stack install`
