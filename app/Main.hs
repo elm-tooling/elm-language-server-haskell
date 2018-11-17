@@ -143,39 +143,55 @@ reactor lf inp =
             HandlerRequest (RspFromClient rm) ->
                 liftIO $ LSP.logs $ "reactor:got RspFromClient:" ++ show rm
 
-            HandlerRequest (NotInitialized _notification) ->
+            HandlerRequest (NotInitialized notification) -> do
+                liftIO $ LSP.logs $ show (notification ^. LSP.params)
                 Diagnostics.typeCheckAndReportDiagnostics
 
             HandlerRequest (NotDidSaveTextDocument notification ) -> do
                 let fileUri  = notification ^. LSP.params . LSP.textDocument . LSP.uri
                 let filePath = LSP.uriToFilePath fileUri
                 lf <- ask
-                liftIO $ LSP.Core.flushDiagnosticsBySourceFunc lf 200 (Just "elm-language-server")
+                liftIO $ LSP.Core.flushDiagnosticsBySourceFunc lf 200 (Just "ElmLS")
                 Diagnostics.typeCheckAndReportDiagnostics
 
-            HandlerRequest (ReqCodeAction req) -> do
-		let params = req ^. LSP.params
-		let fileUri = params ^. LSP.textDocument . LSP.uri
-                let filePath = LSP.uriToFilePath fileUri
-		let range = params ^. LSP.range
+            HandlerRequest (ReqCodeAction req) ->
+                let 
+                    params = req ^. LSP.params
+                    fileUri = params ^. LSP.textDocument . LSP.uri
+                    filePath = LSP.uriToFilePath fileUri
+                    LSP.List contextDiagnostics = params ^. LSP.context . LSP.diagnostics
+                in 
+                    forM_ contextDiagnostics 
+                        (\contextDiagnostic ->
+                            let
+                                range = contextDiagnostic ^. LSP.range
+                                --changes = HashMap.singleton fileUri $ LSP.List [ LSP.TextEdit range ""]
+                                documentChanges = LSP.List
+                                    [ LSP.TextDocumentEdit 
+                                        (LSP.VersionedTextDocumentIdentifier fileUri (Just 0))
+                                        (LSP.List [LSP.TextEdit range ""])
+                                    ]
+                                
+                                action = LSP.CACodeAction $ LSP.CodeAction
+                                            "Delete everything"
+                                            (Just LSP.CodeActionQuickFix)
+                                            Nothing
+                                            (Just $ LSP.WorkspaceEdit Nothing (Just documentChanges))
+                                            Nothing
 
-		liftIO . LSP.logs $ show range
-		let changes = Just $ HashMap.singleton fileUri $ LSP.List [ LSP.TextEdit range ""]
-		    action = LSP.CACodeAction $ LSP.CodeAction "Delete everything"
-                                                               (Just LSP.CodeActionQuickFix)
-							       Nothing
-							       (Just $ LSP.WorkspaceEdit changes Nothing)
-							       Nothing
-		    body = LSP.List [action]
-		    rsp = LSP.Core.makeResponseMessage req body
-		liftIO . LSP.logs $ show body
-		liftIO . LSP.logs $ show rsp
-	        reactorSend $ RspCodeAction rsp
+                                body = LSP.List [action]
+                                rsp = LSP.Core.makeResponseMessage req body
+                            in do
+                                liftIO $ LSP.logs ("Sending Code Action with range " ++ show range)
+                                reactorSend $ RspCodeAction rsp
+                        )
+            
+            HandlerRequest (NotCancelRequestFromClient _) -> return () -- ignoring for now
 
 reactorSend :: FromServerMessage -> R () ()
 reactorSend msg = do
-  lf <- ask
-  liftIO $ LSP.Core.sendFunc lf msg
+    lf <- ask
+    liftIO $ LSP.Core.sendFunc lf msg
 
 syncOptions :: LSP.TextDocumentSyncOptions
 syncOptions = LSP.TextDocumentSyncOptions
@@ -195,6 +211,7 @@ lspHandlers rin = def
     { LSP.Core.initializedHandler = Just $ passHandler rin NotInitialized
     , LSP.Core.didSaveTextDocumentNotificationHandler = Just $ passHandler rin NotDidSaveTextDocument
     , LSP.Core.codeActionHandler = Just $ passHandler rin ReqCodeAction
+    , LSP.Core.cancelNotificationHandler = Just $ passHandler rin NotCancelRequestFromClient
     }
 
 passHandler :: TChan ReactorInput -> (a -> FromClientMessage) -> LSP.Core.Handler a
