@@ -69,25 +69,30 @@ data CommandLineOptions
     , sessionLogFile :: FilePath
     }
 
-commandLineOptionsParser :: String -> Parser CommandLineOptions
-commandLineOptionsParser logSuffix = CommandLineOptions
-    <$> strOption
-        ( long "server-log-file"
-        <> metavar "FILENAME"
-        <> help "Log file used for general server logging"
-        <> value ("/tmp/elm-language-server-" ++ logSuffix ++ ".log")
-        <> showDefault
-        )
-    <*> strOption
-        ( long "session-log-file"
-        <> metavar "FILENAME"
-        <> help "Log file used for general server logging"
-        <> value ("/tmp/elm-language-session-" ++ logSuffix ++ ".log")
-        <> showDefault
-        )
+commandLineOptionsParser :: Parser CommandLineOptions
+commandLineOptionsParser =
+    let
+        sessionFileName = "/tmp/elm-language-session"
+        sessionFileSuffix = ".log"
+        sessionFile = sessionFileName ++ sessionFileSuffix
+    in
+        CommandLineOptions
+            <$> strOption
+                ( long "server-log-file"
+                <> metavar "FILENAME"
+                <> help "Log file used for general server logging"
+                <> value "/tmp/elm-language-server.log"
+                <> showDefault
+                )
+            <*> strOption
+                ( long "session-log-file"
+                <> metavar "FILENAME"
+                <> help ("Log file used for general server logging (default: " ++ show sessionFileName ++ "<date>" ++ sessionFileSuffix ++ ")")
+                <> value sessionFile
+                )
 
-commandLineOptions :: String -> ParserInfo CommandLineOptions
-commandLineOptions logSuffix = info (commandLineOptionsParser logSuffix <**> helper)
+commandLineOptions :: ParserInfo CommandLineOptions
+commandLineOptions = info (commandLineOptionsParser <**> helper)
     ( fullDesc
     <> header "elm-language-server"
     <> progDesc "A Language Server Protocol Implementation for the Elm Language (see https://elm-lang.org)"
@@ -95,10 +100,7 @@ commandLineOptions logSuffix = info (commandLineOptionsParser logSuffix <**> hel
 
 main :: IO ()
 main = do
-    zonedTime <- Time.getZonedTime
-    let isoFormat = Time.iso8601DateFormat (Just "%H:%M:%S")
-
-    opts <- execParser (commandLineOptions (Time.formatTime Time.defaultTimeLocale isoFormat zonedTime))
+    opts <- execParser commandLineOptions
     run opts (return ()) >>= \case
         0 -> exitSuccess
         c -> exitWith . ExitFailure $ c
@@ -151,27 +153,28 @@ reactor lf inp =
                 let fileUri  = notification ^. LSP.params . LSP.textDocument . LSP.uri
                 let filePath = LSP.uriToFilePath fileUri
                 lf <- ask
+                liftIO $ LSP.logm ""
                 liftIO $ LSP.Core.flushDiagnosticsBySourceFunc lf 200 (Just "ElmLS")
                 Diagnostics.typeCheckAndReportDiagnostics
 
             HandlerRequest (ReqCodeAction req) ->
-                let 
+                let
                     params = req ^. LSP.params
                     fileUri = params ^. LSP.textDocument . LSP.uri
                     filePath = LSP.uriToFilePath fileUri
                     LSP.List contextDiagnostics = params ^. LSP.context . LSP.diagnostics
-                in 
-                    forM_ contextDiagnostics 
+                in
+                    forM_ contextDiagnostics
                         (\contextDiagnostic ->
                             let
                                 range = contextDiagnostic ^. LSP.range
                                 --changes = HashMap.singleton fileUri $ LSP.List [ LSP.TextEdit range ""]
                                 documentChanges = LSP.List
-                                    [ LSP.TextDocumentEdit 
+                                    [ LSP.TextDocumentEdit
                                         (LSP.VersionedTextDocumentIdentifier fileUri (Just 0))
                                         (LSP.List [LSP.TextEdit range ""])
                                     ]
-                                
+
                                 action = LSP.CACodeAction $ LSP.CodeAction
                                             "Delete everything"
                                             (Just LSP.CodeActionQuickFix)
@@ -185,7 +188,7 @@ reactor lf inp =
                                 liftIO $ LSP.logs ("Sending Code Action with range " ++ show range)
                                 reactorSend $ RspCodeAction rsp
                         )
-            
+
             HandlerRequest (NotCancelRequestFromClient _) -> return () -- ignoring for now
 
 reactorSend :: FromServerMessage -> R () ()
@@ -207,7 +210,7 @@ lspOptions = def
     { LSP.Core.textDocumentSync = Just syncOptions }
 
 lspHandlers :: TChan ReactorInput -> LSP.Core.Handlers
-lspHandlers rin = def 
+lspHandlers rin = def
     { LSP.Core.initializedHandler = Just $ passHandler rin NotInitialized
     , LSP.Core.didSaveTextDocumentNotificationHandler = Just $ passHandler rin NotDidSaveTextDocument
     , LSP.Core.codeActionHandler = Just $ passHandler rin ReqCodeAction
