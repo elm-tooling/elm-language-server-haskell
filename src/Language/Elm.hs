@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Language.Elm where
 
+import Control.Exception (IOException, handle)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan, getChanContents)
@@ -31,14 +33,13 @@ import qualified File.Args
 import qualified File.Compile
 import qualified File.Crawl
 import qualified File.Plan
+import Reporting.Progress (silentReporter)
 import qualified Reporting.Progress.Json
 import qualified Reporting.Progress.Terminal
-import qualified Reporting.Task
 import qualified Reporting.Doc
 import qualified Reporting.Error
 import qualified Reporting.Render.Code
 import qualified Reporting.Report
-import qualified Reporting.Progress
 import qualified Reporting.Task
 import qualified Reporting.Warning
 import qualified Reporting.Result
@@ -69,29 +70,43 @@ data TypeCheckFailure = TypeCheckFailure
 type CheckingAnswer = Either TypeCheckFailure TypeCheckSuccess
 type CheckingAnswers = Map.Map Elm.Compiler.Module.Raw CheckingAnswer
 
+readProject :: MonadIO m => FilePath -> m (Either Reporting.Exit.Exit Elm.Project.Json.Project)
+readProject path =
+  liftIO $
+    handle (\(e:: IOException) -> return $ Left Reporting.Exit.NoElmJson) $
+      Reporting.Task.tryWithError silentReporter $
+        Elm.Project.Json.read path
+
+typeCheckProject :: MonadIO m => String -> Elm.Project.Json.Project -> m (Either Reporting.Exit.Exit CheckingAnswers)
+typeCheckProject root project =
+  liftIO $
+    Reporting.Task.tryWithError silentReporter $ do
+      Elm.Project.Json.check project
+      summary <- Stuff.Verify.verify root project
+      -- get files from the  project
+      files <- liftIO $ getElmFiles project
+
+      args <- File.Args.fromPaths summary files
+      graph <- File.Crawl.crawl summary args
+      (dirtyModules, interfaces) <- File.Plan.plan Nothing summary graph
+
+      answers <- liftIO $ do
+          mvar <- newEmptyMVar
+          iMVar <- newMVar interfaces
+          answerMVars <- Map.traverseWithKey (compileModule project mvar iMVar) dirtyModules
+          putMVar mvar answerMVars
+          traverse readMVar answerMVars
+
+      return (fmap computeInterfaceOrErrors answers)
+
 -- Use Elm Compiler to typecheck files
 -- Arguments are root (where elm.json lives) and filenames (or [])
 typeCheckFiles :: MonadIO m => String -> m (Either Reporting.Exit.Exit CheckingAnswers)
-typeCheckFiles root =
-    liftIO $ Reporting.Task.tryWithError Reporting.Progress.silentReporter $ do
-        project <- Elm.Project.Json.read (root </> "elm.json")
-        Elm.Project.Json.check project
-        summary <- Stuff.Verify.verify root project
-        -- get files from the  project
-        files <- liftIO $ getElmFiles project
-
-        args <- File.Args.fromPaths summary files
-        graph <- File.Crawl.crawl summary args
-        (dirtyModules, interfaces) <- File.Plan.plan Nothing summary graph
-
-        answers <- liftIO $ do
-            mvar <- newEmptyMVar
-            iMVar <- newMVar interfaces
-            answerMVars <- Map.traverseWithKey (compileModule project mvar iMVar) dirtyModules
-            putMVar mvar answerMVars
-            traverse readMVar answerMVars
-
-        return (fmap computeInterfaceOrErrors answers)
+typeCheckFiles root = do
+    project <- readProject (root </> "elm.json")
+    case project of
+      Left exit -> return $ Left exit
+      Right project -> typeCheckProject root project
 
 computeInterfaceOrErrors :: File.Compile.Answer -> CheckingAnswer
 computeInterfaceOrErrors answer =
