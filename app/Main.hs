@@ -65,26 +65,24 @@ import qualified Language.Elm.LSP.Diagnostics as Diagnostics
 
 data CommandLineOptions
     = CommandLineOptions
-    { serverLogFile :: FilePath
-    , sessionLogFile :: FilePath
+    { serverLogFile :: Maybe FilePath
+    , sessionLogFile :: Maybe FilePath
     }
 
 commandLineOptionsParser :: String -> Parser CommandLineOptions
 commandLineOptionsParser logSuffix = CommandLineOptions
-    <$> strOption
+    <$> optional (strOption
         ( long "server-log-file"
-        <> metavar "FILENAME"
-        <> help "Log file used for general server logging"
-        <> value ("/tmp/elm-language-server-" ++ logSuffix ++ ".log")
-        <> showDefault
-        )
-    <*> strOption
+        <> short 'l'
+        <> metavar "LOGFILE"
+        <> help "Log file used for general server logging, defaults to stdout"
+        ))
+
+    <*> optional (strOption
         ( long "session-log-file"
-        <> metavar "FILENAME"
-        <> help "Log file used for general server logging"
-        <> value ("/tmp/elm-language-session-" ++ logSuffix ++ ".log")
-        <> showDefault
-        )
+        <> metavar "SESSIONLOGFILE"
+        <> help "Log file used for session server logging, defaults to stdout"
+        ))
 
 commandLineOptions :: String -> ParserInfo CommandLineOptions
 commandLineOptions logSuffix = info (commandLineOptionsParser logSuffix <**> helper)
@@ -111,12 +109,12 @@ run opts dispatcherProc = flip Exception.catches handlers $ do
             dispatcherProc
             return Nothing
     flip Exception.finally finalProc $ do
-        LSP.Core.setupLogger (Just (serverLogFile opts)) [] L.DEBUG
+        LSP.Core.setupLogger (serverLogFile opts) [] L.DEBUG
         LSP.Control.run
             (return (Right ()), dp)
             (lspHandlers rin)
             lspOptions
-            (Just (sessionLogFile opts))
+            (sessionLogFile opts)
   where
     handlers  = [Exception.Handler ioExcept, Exception.Handler someExcept]
     finalProc = L.removeAllHandlers
@@ -167,7 +165,7 @@ lspOptions = def
     { LSP.Core.textDocumentSync = Just syncOptions }
 
 lspHandlers :: TChan ReactorInput -> LSP.Core.Handlers
-lspHandlers rin = def 
+lspHandlers rin = def
     { LSP.Core.initializedHandler = Just $ passHandler rin NotInitialized
     , LSP.Core.didSaveTextDocumentNotificationHandler = Just $ passHandler rin NotDidSaveTextDocument
     }
