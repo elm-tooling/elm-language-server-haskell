@@ -63,12 +63,12 @@ type R c a = ReaderT (LSP.Core.LspFuncs c) IO a
 publishDiagnostics :: Int -> LSP.Uri -> LSP.TextDocumentVersion -> DiagnosticsBySource -> R () ()
 publishDiagnostics maxToPublish uri v diags = do
     lf <- ask
-    liftIO $ (LSP.Core.publishDiagnosticsFunc lf) maxToPublish uri v diags
+    liftIO $ LSP.Core.publishDiagnosticsFunc lf maxToPublish uri v diags
 
 showMessageNotification :: LSP.MessageType -> T.Text -> R () ()
 showMessageNotification messageType text = do
     lf <- ask
-    liftIO $ (LSP.Core.sendFunc lf) (NotShowMessage (LSP.fmServerShowMessageNotification messageType text))
+    liftIO $ LSP.Core.sendFunc lf (NotShowMessage (LSP.fmServerShowMessageNotification messageType text))
 
 typeCheckAndReportDiagnostics :: R () ()
 typeCheckAndReportDiagnostics = do
@@ -80,7 +80,7 @@ typeCheckAndReportDiagnostics = do
         Just root -> do
             result <- liftIO $ Elm.typeCheckFiles root
             case result of
-                Right answers -> 
+                Right answers ->
                     reportAnswers root answers
 
                 Left exit ->
