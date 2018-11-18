@@ -58,10 +58,12 @@ import qualified Reporting.Doc
 import qualified Reporting.Error
 import qualified Reporting.Render.Code
 import qualified Reporting.Report
+import qualified Reporting.Exit
 import qualified "elm" Reporting.Region -- would conflict with elm-format's Reporting.Region
 import qualified Stuff.Verify
 
 import qualified Language.Elm.LSP.Diagnostics as Diagnostics
+import qualified Language.Elm as Elm
 
 data CommandLineOptions
     = CommandLineOptions
@@ -149,45 +151,72 @@ reactor lf inp =
                 liftIO $ LSP.logs $ show (notification ^. LSP.params)
                 Diagnostics.typeCheckAndReportDiagnostics
 
-            HandlerRequest (NotDidSaveTextDocument notification ) -> do
+            HandlerRequest (NotDidSaveTextDocument notification) -> do
                 let fileUri  = notification ^. LSP.params . LSP.textDocument . LSP.uri
                 let filePath = LSP.uriToFilePath fileUri
                 lf <- ask
-                liftIO $ LSP.logm ""
                 liftIO $ LSP.Core.flushDiagnosticsBySourceFunc lf 200 (Just "ElmLS")
                 Diagnostics.typeCheckAndReportDiagnostics
+                
 
-            HandlerRequest (ReqCodeAction req) ->
-                let
-                    params = req ^. LSP.params
-                    fileUri = params ^. LSP.textDocument . LSP.uri
-                    filePath = LSP.uriToFilePath fileUri
-                    LSP.List contextDiagnostics = params ^. LSP.context . LSP.diagnostics
-                in
-                    forM_ contextDiagnostics
-                        (\contextDiagnostic ->
-                            let
-                                range = contextDiagnostic ^. LSP.range
-                                --changes = HashMap.singleton fileUri $ LSP.List [ LSP.TextEdit range ""]
-                                documentChanges = LSP.List
-                                    [ LSP.TextDocumentEdit
-                                        (LSP.VersionedTextDocumentIdentifier fileUri (Just 0))
-                                        (LSP.List [LSP.TextEdit range ""])
-                                    ]
+            HandlerRequest (ReqCodeAction req) -> do
+                lf <- ask
+                case LSP.Core.rootPath lf of
+                    Nothing -> 
+                        liftIO $ LSP.logm "NO ROOTPATH"
 
-                                action = LSP.CACodeAction $ LSP.CodeAction
-                                            "Delete everything"
-                                            (Just LSP.CodeActionQuickFix)
-                                            Nothing
-                                            (Just $ LSP.WorkspaceEdit Nothing (Just documentChanges))
-                                            Nothing
+                    Just root -> do
+                        result <- liftIO $ Elm.typeCheckFiles root
+                        case result of
+                            Right answers ->
+                                let
+                                    onlyFailure (Left failure) = Just failure
+                                    onlyFailure (Right _) = Nothing
 
-                                body = LSP.List [action]
-                                rsp = LSP.Core.makeResponseMessage req body
-                            in do
-                                liftIO $ LSP.logs ("Sending Code Action with range " ++ show range)
-                                reactorSend $ RspCodeAction rsp
-                        )
+                                    failures = Map.mapMaybe onlyFailure answers
+                                    
+                                    -- elm uses 1-based indices (for being human friendly)
+                                    translatePosition (Reporting.Region.Position line column) = LSP.Position (line - 1) (column - 1)
+
+                                    makeCodeActions sourcePath (Reporting.Report.Report title region suggestions message) =
+                                        let
+                                            fileUri = LSP.filePathToUri (root </> sourcePath)
+                                            
+                                            (Reporting.Region.Region start end) = region
+                                            
+                                            range = LSP.Range (translatePosition start) (translatePosition end)
+
+                                            textEdits suggestion = LSP.List [LSP.TextEdit range (T.pack suggestion)]
+
+                                            changes suggestion = HashMap.singleton fileUri (textEdits suggestion)
+                                            
+                                            editFromSuggestion suggestion = LSP.List
+                                                [ LSP.TextDocumentEdit (LSP.VersionedTextDocumentIdentifier fileUri (Just 0)) (textEdits suggestion) ]
+                                            
+                                            codeAction suggestion =
+                                                LSP.CACodeAction $ LSP.CodeAction
+                                                    ("Replace with \"" <> T.pack suggestion <> "\"")
+                                                    (Just LSP.CodeActionQuickFix)
+                                                    Nothing
+                                                    --(Just (LSP.WorkspaceEdit Nothing (Just (editFromSuggestion suggestion))))
+                                                    (Just (LSP.WorkspaceEdit (Just (changes suggestion)) Nothing))
+                                                    Nothing
+                                        in
+                                            map codeAction suggestions
+                                    codeActions = 
+                                        concatMap
+                                            (\(Elm.TypeCheckFailure sourcePath reports) -> concatMap (makeCodeActions sourcePath) reports)
+                                            (Map.elems failures)
+                                    
+                                    body = LSP.List codeActions
+                                    
+                                    rsp = LSP.Core.makeResponseMessage req body
+                                in
+                                    reactorSend (RspCodeAction rsp)
+            
+                            Left exit ->
+                                -- TODO: We need to extract some functions from the diagnostics module: publishDiagnostics, showMessageNotification, reactorSend, maybe more
+                                Diagnostics.showMessageNotification LSP.MtError (T.pack (Reporting.Exit.toString exit))
 
             HandlerRequest (NotCancelRequestFromClient _) -> return () -- ignoring for now
 
