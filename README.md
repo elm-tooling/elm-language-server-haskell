@@ -36,4 +36,5 @@ Install ghc and dependencies. You need to have [stack](https://www.haskellstack.
 * `stack install`
 
 ## Contributing
+* [Elm Language Server - Requirements](https://docs.google.com/document/d/1ETeZeN17hqM4yui4iqBv1jwO8HryDZyel2kdcxTCGGA/edit)
 * Get information about contributing on the [\#elm-language-server channel](https://elmlang.slack.com/messages/elm-language-server) in the elm slack.
