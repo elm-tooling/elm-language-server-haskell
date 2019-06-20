@@ -1,8 +1,8 @@
-[![CircleCI](https://circleci.com/gh/elm-tooling/elm-language-server/tree/master.svg?style=svg)](https://circleci.com/gh/elm-tooling/elm-language-server/tree/master)
+# elm-language-server-haskell (unmaintained and archived)
 
-# It's very early in development, please keep that in mind
+**NOTE**: The repository [elm-languge-server](https://github.com/elm-tooling/elm-language-server) (tree-sitter based) is actively maintained. This repository is currently *not maintained*.
 
-# elm-language-server
+---
 
 First attempt to write a language server for Elm.
 
