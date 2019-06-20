@@ -1,6 +1,6 @@
 # elm-language-server-haskell (archived)
 
-**NOTE**: The repository [elm-languge-server](https://github.com/elm-tooling/elm-language-server) (tree-sitter based) is actively maintained. This repository is currently *not maintained*.
+**NOTE**: The repository [elm-language-server](https://github.com/elm-tooling/elm-language-server) is actively maintained. This repository is currently *not maintained*.
 
 ---
 
